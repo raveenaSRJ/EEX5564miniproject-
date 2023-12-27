@@ -1,127 +1,119 @@
-#include <stdio.h>
-#include <stdlib.h>
+Here is the code,
 
-// Process structure
+#include <stdio.h>
+
+#define MAX_PROCESSES 7
+#define MAX_QUEUE_SIZE 5
+#define TIME_SLICE 2
+
 typedef struct {
     int process_id;
     int priority;
     int burst_time;
-    int waiting_time;
 } Process;
 
-// Queue structure
 typedef struct {
-    Process** processes;
-    int front, rear, size;
+    Process* queue[MAX_PROCESSES]; // Changed the queue size to accommodate all processes
+    int front, rear;
 } Queue;
 
-// Function to create a process
-Process* createProcess(int process_id, int priority, int burst_time) {
-    Process* process = (Process*)malloc(sizeof(Process));
-    process->process_id = process_id;
-    process->priority = priority;
-    process->burst_time = burst_time;
-    process->waiting_time = 0;
-    return process;
+void initializeQueue(Queue* q) {
+    q->front = q->rear = -1;
 }
 
-// Function to create a queue
-Queue* createQueue(int size) {
-    Queue* queue = (Queue*)malloc(sizeof(Queue));
-    queue->processes = (Process**)malloc(size * sizeof(Process*));
-    queue->front = queue->rear = -1;
-    queue->size = size;
-    return queue;
+int isQueueEmpty(Queue* q) {
+    return q->front == -1;
 }
 
-// Function to check if a queue is empty
-int isEmpty(Queue* queue) {
-    return queue->front == -1;
+int isQueueFull(Queue* q) {
+    return q->rear == MAX_PROCESSES - 1;
 }
 
-// Function to enqueue a process
-void enqueue(Queue* queue, Process* process) {
-    if (queue->rear == queue->size - 1) {
-        printf("Queue is full\n");
+void enqueue(Queue* q, Process* process) {
+    if (isQueueFull(q)) {
+        printf("Queue is full!\n");
         return;
     }
-    if (isEmpty(queue)) {
-        queue->front = queue->rear = 0;
-    } else {
-        queue->rear++;
+
+    if (q->front == -1) {
+        q->front = 0;
     }
-    queue->processes[queue->rear] = process;
+
+    q->rear++;
+    q->queue[q->rear] = process;
 }
 
-// Function to dequeue a process
-Process* dequeue(Queue* queue) {
-    if (isEmpty(queue)) {
+Process* dequeue(Queue* q) {
+    if (isQueueEmpty(q)) {
+        printf("Queue is empty!\n");
         return NULL;
     }
-    Process* process = queue->processes[queue->front];
-    if (queue->front == queue->rear) {
-        queue->front = queue->rear = -1;
+
+    Process* process = q->queue[q->front];
+
+    if (q->front == q->rear) {
+        initializeQueue(q);
     } else {
-        queue->front++;
+        q->front++;
     }
+
     return process;
 }
 
-// Function to age the processes in a queue
-void ageProcesses(Queue* queue) {
-    for (int i = queue->front; i <= queue->rear; i++) {
-        queue->processes[i]->waiting_time++;
-    }
-}
-
-// Function to simulate MLQ CPU scheduling
-void MLQScheduler(Queue** queues, int num_queues, int* time_quantum) {
-    int currentTime = 0;
-    while (1) {
-        for (int i = 0; i < num_queues; i++) {
-            if (!isEmpty(queues[i])) {
-                Process* currentProcess = dequeue(queues[i]);
-                printf("Executing process %d from Queue %d at time %d\n", currentProcess->process_id, i, currentTime);
-                currentProcess->burst_time -= time_quantum[i];
-                ageProcesses(queues[i]);
-                currentTime += time_quantum[i];
-
-                // Check if the process is completed
-                if (currentProcess->burst_time <= 0) {
-                    free(currentProcess);
-                } else {
-                    enqueue(queues[i], currentProcess);
-                }
-            }
-        }
-    }
+void executeProcess(Process* process) {
+    printf("Process number %d (Priority Level: %d, Burst Time: %d(s))\n", process->process_id, process->priority, process->burst_time);
 }
 
 int main() {
-    // Example: Creating 3 queues with different time quantum values
-    int num_queues = 3;
-    int time_quantum[] = {20, 40, 80};
+    Queue queues[MAX_QUEUE_SIZE];
+    Process processes[MAX_PROCESSES];
 
-    Queue** queues = (Queue**)malloc(num_queues * sizeof(Queue*));
-
-    for (int i = 0; i < num_queues; i++) {
-        queues[i] = createQueue(10);  // Assuming a maximum of 10 processes in each queue
+    // Initialize queues
+    for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+        initializeQueue(&queues[i]);
     }
 
-    // Example: Enqueue processes with different priorities
-    enqueue(queues[0], createProcess(1, 0, 100));
-    enqueue(queues[1], createProcess(2, 1, 120));
-    enqueue(queues[2], createProcess(3, 2, 80));
-
-    // Run the MLQ scheduling simulation
-    MLQScheduler(queues, num_queues, time_quantum);
-
-    // Free allocated memory
-    for (int i = 0; i < num_queues; i++) {
-        free(queues[i]->processes);
-        free(queues[i]);
+    // Initialize processes
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        processes[i].process_id = i + 1;
+        processes[i].priority = i % MAX_QUEUE_SIZE;
+        processes[i].burst_time = (i % MAX_QUEUE_SIZE) + 1;
+        enqueue(&queues[i % MAX_QUEUE_SIZE], &processes[i]);
     }
-    free(queues);
+
+    // Execute processes in a round-robin manner with time slices
+    int time = 0;
+    while (1) {
+        for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+            if (!isQueueEmpty(&queues[i])) {
+                Process* current_process = dequeue(&queues[i]);
+                executeProcess(current_process);
+                time += TIME_SLICE;
+                current_process->burst_time -= TIME_SLICE;
+
+                // Move the process to the lower priority queue if its burst time is not completed
+                if (current_process->burst_time > 0) {
+                    int next_queue_index = (i + 1) % MAX_QUEUE_SIZE;
+                    enqueue(&queues[next_queue_index], current_process);
+                } else {
+                    printf("Process %d completed!\n", current_process->process_id);
+                }
+            }
+        }
+
+        // Check if all processes are completed
+        int allCompleted = 1;
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (processes[i].burst_time > 0) {
+                allCompleted = 0;
+                break;
+            }
+        }
+
+        if (allCompleted) {
+            break;
+        }
+    }
 
     return 0;
 }
